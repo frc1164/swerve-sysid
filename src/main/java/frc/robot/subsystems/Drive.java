@@ -18,18 +18,12 @@ import edu.wpi.first.units.Measure;
 import edu.wpi.first.units.MutableMeasure;
 import edu.wpi.first.units.Velocity;
 import edu.wpi.first.units.Voltage;
-import edu.wpi.first.wpilibj.Encoder;
-import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
-import edu.wpi.first.wpilibj.drive.RobotDriveBase;
 import frc.robot.Constants.DriveConstants;
-import edu.wpi.first.wpilibj.motorcontrol.PWMSparkMax;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import java.util.function.DoubleSupplier;
-import edu.wpi.first.wpilibj.motorcontrol.MotorController;
-import edu.wpi.first.wpilibj.motorcontrol.MotorControllerGroup;
 
 public class Drive extends SubsystemBase {
   // The motors on the left side of the drive.
@@ -39,20 +33,15 @@ public class Drive extends SubsystemBase {
   private final CANSparkMax m_RightFrontMotor = new CANSparkMax(DriveConstants.kRightFrontMotor1Port, MotorType.kBrushless);
   private final CANSparkMax m_RightBackMotor = new CANSparkMax(DriveConstants.kRightBackMotor1Port, MotorType.kBrushless);
 
-  private final MotorControllerGroup m_LeftGroup = new MotorControllerGroup(m_LeftBackMotor, m_LeftFrontMotor);
-  private final MotorControllerGroup m_RightGroup = new MotorControllerGroup(m_RightBackMotor, m_RightFrontMotor);
-
   // The robot's drive
   private final DifferentialDrive m_drive =
-      new DifferentialDrive(m_LeftGroup, m_RightGroup);
+    new DifferentialDrive(m_LeftFrontMotor, m_RightFrontMotor);
 
   // The left-side drive encoder
   private final RelativeEncoder m_LeftFrontEncoder = m_LeftFrontMotor.getEncoder();
-  private final RelativeEncoder m_LeftBackEncoder = m_LeftBackMotor.getEncoder();
 
   // The right-side drive encoder
-  private final RelativeEncoder m_RightFrontEncoder = m_RightBackMotor.getEncoder();
-  private final RelativeEncoder m_RightBackEncoder = m_RightBackMotor.getEncoder();
+  private final RelativeEncoder m_RightFrontEncoder = m_RightFrontMotor.getEncoder();
 
 
   // Mutable holder for unit-safe voltage values, persisted to avoid reallocation.
@@ -65,15 +54,12 @@ public class Drive extends SubsystemBase {
   // Create a new SysId routine for characterizing the drive.
   private final SysIdRoutine m_sysIdRoutine =
       new SysIdRoutine(
-          // Empty config defaults to 1 volt/second ramp rate and 7 volt step voltage.
           new SysIdRoutine.Config(),
           new SysIdRoutine.Mechanism(
               // Tell SysId how to plumb the driving voltage to the motors.
               (Measure<Voltage> volts) -> {
                 m_LeftFrontMotor.setVoltage(volts.in(Volts));
-                m_LeftBackMotor.setVoltage(volts.in(Volts));
                 m_RightFrontMotor.setVoltage(volts.in(Volts));
-                m_RightBackMotor.setVoltage(volts.in(Volts));
               },
               // Tell SysId how to record a frame of data for each motor on the mechanism being
               // characterized.
@@ -83,20 +69,20 @@ public class Drive extends SubsystemBase {
                 log.motor("drive-left")
                     .voltage(
                         m_appliedVoltage.mut_replace(
-                            m_LeftFrontMotor.get() * RobotController.getBatteryVoltage(), Volts))
-                    .linearPosition(m_distance.mut_replace(m_LeftBackEncoder.getPosition() * DriveConstants.kWheelDiameterMeters * DriveConstants.kDriveMotorGearRatio, Meters))
+                          m_LeftFrontMotor.getAppliedOutput() * m_LeftFrontMotor.getBusVoltage(), Volts))
+                    .linearPosition(m_distance.mut_replace(m_LeftFrontEncoder.getPosition() * DriveConstants.kWheelDiameterMeters * Math.PI * DriveConstants.kDriveMotorGearRatio, Meters))
                     .linearVelocity(
-                        m_velocity.mut_replace(m_LeftBackEncoder.getVelocity() * DriveConstants.kWheelDiameterMeters * DriveConstants.kDriveMotorGearRatio, MetersPerSecond));
+                        m_velocity.mut_replace(m_LeftFrontEncoder.getVelocity() * DriveConstants.kWheelDiameterMeters * Math.PI * DriveConstants.kDriveMotorGearRatio * 1/60, MetersPerSecond));
 
                 // Record a frame for the right motors.  Since these share an encoder, we consider
                 // the entire group to be one motor.
                 log.motor("drive-right")
                     .voltage(
                         m_appliedVoltage.mut_replace(
-                            m_RightFrontMotor.get() * RobotController.getBatteryVoltage(), Volts))
-                    .linearPosition(m_distance.mut_replace(m_RightFrontEncoder.getPosition() * DriveConstants.kWheelDiameterMeters * DriveConstants.kDriveMotorGearRatio, Meters))
+                            m_RightFrontMotor.getAppliedOutput() * m_RightFrontMotor.getBusVoltage(), Volts))
+                    .linearPosition(m_distance.mut_replace(m_RightFrontEncoder.getPosition() * DriveConstants.kWheelDiameterMeters * Math.PI * DriveConstants.kDriveMotorGearRatio, Meters))
                     .linearVelocity(
-                        m_velocity.mut_replace(m_RightBackEncoder.getVelocity() * DriveConstants.kWheelDiameterMeters * DriveConstants.kDriveMotorGearRatio, MetersPerSecond));
+                        m_velocity.mut_replace(m_RightFrontEncoder.getVelocity() * DriveConstants.kWheelDiameterMeters * Math.PI * DriveConstants.kDriveMotorGearRatio * 1/60, MetersPerSecond));
               },
               // Tell SysId to make generated commands require this subsystem, suffix test state in
               // WPILog with this subsystem's name ("drive")
@@ -104,8 +90,18 @@ public class Drive extends SubsystemBase {
 
   /** Creates a new Drive subsystem. */
   public Drive() {
-      m_LeftFrontMotor.setInverted(true);
-      m_RightFrontMotor.setInverted(true);
+      // m_LeftFrontMotor.setInverted(false);
+      // m_LeftBackMotor.setInverted(false);
+      // m_RightFrontMotor.setInverted(false);
+      // m_RightBackMotor.setInverted(false);
+
+      m_LeftBackMotor.follow(m_LeftFrontMotor, true);
+      m_RightBackMotor.follow(m_RightFrontMotor, true);
+
+      m_LeftFrontMotor.setIdleMode(IdleMode.kCoast);
+      m_LeftBackMotor.setIdleMode(IdleMode.kCoast);
+      m_RightFrontMotor.setIdleMode(IdleMode.kCoast);
+      m_RightBackMotor.setIdleMode(IdleMode.kCoast);
   }
 
   /**
